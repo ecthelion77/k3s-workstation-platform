@@ -179,6 +179,18 @@ issuer and the root app, which passes it to the platform chart (`domain`). The c
 app's `domainValues` (and `ssoDomainValues` with SSO) only for a non-default domain, so existing
 installs are unchanged. Rotate the CA (`FORCE=1 scripts/generate-ca.sh`) if it already exists.
 
+## Disable apps
+
+List apps the platform must not deploy in the config repo `values/platform.yaml`, e.g. on a small
+node without logs or SSO:
+
+```yaml
+disabledApps: [loki, kubeblocks]
+```
+
+Disabling an app does not disable its dependents: `sso.enabled` needs `kubeblocks` (the chart
+refuses that combination).
+
 ## Certificates
 
 - The platform runs its own ACME certificate authority, step-ca. cert-manager issues the certs.

@@ -112,3 +112,27 @@ def test_matrix_chat_is_opt_in_and_needs_sso() -> None:
         text=True,
     )
     assert failed.returncode != 0 and "matrix.enabled needs sso.enabled" in failed.stderr
+
+
+def test_disabled_apps_are_not_rendered() -> None:
+    apps = render("--set", "disabledApps={loki,kubeblocks}")
+    assert "loki" not in apps
+    assert "kubeblocks" not in apps
+    assert "alloy" in apps
+
+
+def test_sso_without_kubeblocks_is_refused() -> None:
+    with pytest.raises(subprocess.CalledProcessError):
+        render("--set", "sso.enabled=true", "--set", "disabledApps={kubeblocks}")
+
+
+def test_default_domain_injects_no_values() -> None:
+    assert "valuesObject" not in yaml.safe_dump(render()["traefik"])
+
+
+def test_custom_domain_reaches_the_apps() -> None:
+    apps = render("--set", "domain=home.internal")
+    traefik = apps["traefik"]["spec"]["source"]["helm"]["valuesObject"]
+    assert traefik["dashboardRoute"]["host"] == "traefik.home.internal"
+    argocd = apps["argocd"]["spec"]["source"]["helm"]["valuesObject"]
+    assert argocd["ingressRoute"] == {"host": "argocd.home.internal"}

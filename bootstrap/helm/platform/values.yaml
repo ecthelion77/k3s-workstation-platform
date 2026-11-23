@@ -18,6 +18,11 @@ configRepoRevision: main
 # injected for a domain other than the default, which the charts already use.
 domain: workstation.internal
 
+# Apps not to deploy, by name (e.g. [loki, kubeblocks] on a small node). Set it in the config repo
+# values/platform.yaml. Disabling an app does not disable the ones that depend on it (keycloak needs
+# kubeblocks, so disable both or leave sso off).
+disabledApps: []
+
 # Sync options of every app unless the app sets its own `syncOptions`.
 syncOptions: [CreateNamespace=true, ServerSideApply=true]
 
