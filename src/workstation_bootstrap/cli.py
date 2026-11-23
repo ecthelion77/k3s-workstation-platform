@@ -49,6 +49,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    bootstrap_parser.add_argument(
+        "--skip-phase",
+        metavar="NAME",
+        action="append",
+        default=[],
+        help=(
+            "Skip a phase (repeatable), e.g. argocd, root-app, extra-root-apps, api-oidc to "
+            "install the charts with helm and adopt them with ArgoCD later"
+        ),
+    )
+
     reset_parser = subparsers.add_parser(
         "reset", help="Completely remove k3s and its cluster (k3s-uninstall)"
     )
@@ -76,7 +87,7 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         loadbalancer_ip=args.loadbalancer_ip,
     )
-    return 0 if run_bootstrap(context, config_repo=args.config_repo) else 1
+    return 0 if run_bootstrap(context, config_repo=args.config_repo, skip=args.skip_phase) else 1
 
 
 def _cmd_reset(args: argparse.Namespace) -> int:

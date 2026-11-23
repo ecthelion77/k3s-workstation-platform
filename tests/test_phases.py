@@ -595,3 +595,20 @@ def test_api_oidc_rolls_back_when_k3s_does_not_come_back(monkeypatch, tmp_path):
         phases._phase_api_oidc(phases.Context(root=tmp_path, dry_run=False))
     assert attempts == [True, False]  # failed with the drop-in, restarted without it
     assert not phases._K3S_SSO_DROPIN.exists()
+
+
+def test_run_bootstrap_skips_the_named_phases(monkeypatch, tmp_path) -> None:
+    ran: list[str] = []
+    monkeypatch.setattr(phases.tools, "ensure_tools", lambda dry_run: None)
+    monkeypatch.setattr(phases.tools, "ensure_age_key", lambda dry_run: None)
+    monkeypatch.setattr(phases, "_sync_config_repo", lambda context, override: None)
+    plan = tuple(
+        phases.Phase(name, name, lambda context, name=name: ran.append(name))
+        for name in ("one", "two", "three")
+    )
+    monkeypatch.setattr(phases, "PHASE_PLAN", plan)
+    context = phases.Context(root=tmp_path, dry_run=False)
+    assert phases.run_bootstrap(context, skip=["two"])
+    assert ran == ["one", "three"]
+    with pytest.raises(phases.PhaseError):
+        phases.run_bootstrap(context, skip=["nope"])

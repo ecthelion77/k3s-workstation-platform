@@ -12,7 +12,7 @@ import os
 import shutil
 import time
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -978,9 +978,15 @@ def _sync_config_repo(context: Context, override: str | None) -> None:
         settings.ensure_config_repo(url, revision)
 
 
-def run_bootstrap(context: Context, config_repo: str | None = None) -> bool:
-    """Execute the seed phases in order. Returns True on success."""
+def run_bootstrap(
+    context: Context, config_repo: str | None = None, skip: Sequence[str] = ()
+) -> bool:
+    """Execute the seed phases in order, except those named in ``skip``. Returns True on success."""
     console.step("Bootstrapping the workstation cluster")
+    unknown = set(skip) - {phase.name for phase in PHASE_PLAN}
+    if unknown:
+        raise PhaseError(f"unknown phase(s) to skip: {', '.join(sorted(unknown))}")
+    plan = [phase for phase in PHASE_PLAN if phase.name not in skip]
 
     console.step("Ensuring prerequisites")
     tools.ensure_tools(dry_run=context.dry_run)
@@ -988,13 +994,13 @@ def run_bootstrap(context: Context, config_repo: str | None = None) -> bool:
 
     if context.dry_run:
         console.info("Dry run: listing the planned phase sequence")
-        for index, phase in enumerate(PHASE_PLAN, start=1):
+        for index, phase in enumerate(plan, start=1):
             console.sub(f"[{index}] {phase.name}: {phase.description}")
         return True
 
     _sync_config_repo(context, config_repo)
 
-    for index, phase in enumerate(PHASE_PLAN, start=1):
+    for index, phase in enumerate(plan, start=1):
         console.step(f"Phase [{index}] {phase.name}")
         phase.run(context)
         console.ok(f"Phase {phase.name} complete")
