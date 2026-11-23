@@ -164,6 +164,21 @@ python3 dashboards-src/workstation.py --check  # rules gate + drift (also run by
 `dashboards-src/grafana_v2.py` is shared with the agent harness dashboard: keep both copies
 identical.
 
+## Platform domain
+
+Every app is served as `<app>.<domain>`; the default domain is `workstation.internal`. To use another
+one (not `.local`, which is reserved for mDNS), set `domain` in `~/.k3s-workstation-platform/config.yaml`
+before the first bootstrap:
+
+```yaml
+domain: home.internal
+```
+
+The bootstrap uses it for the host wildcard DNS, the CA's `ca.<domain>` name, the API server SSO
+issuer and the root app, which passes it to the platform chart (`domain`). The chart injects each
+app's `domainValues` (and `ssoDomainValues` with SSO) only for a non-default domain, so existing
+installs are unchanged. Rotate the CA (`FORCE=1 scripts/generate-ca.sh`) if it already exists.
+
 ## Certificates
 
 - The platform runs its own ACME certificate authority, step-ca. cert-manager issues the certs.

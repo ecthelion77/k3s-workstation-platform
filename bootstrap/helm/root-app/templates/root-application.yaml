@@ -24,6 +24,7 @@ spec:
           targetRevision: {{ .targetRevision | quote }}
           configRepoURL: {{ $.Values.configRepoURL | quote }}
           configRepoRevision: {{ $.Values.configRepoRevision | quote }}
+          domain: {{ $.Values.domain | quote }}
     - repoURL: {{ $.Values.configRepoURL | quote }}
       targetRevision: {{ $.Values.configRepoRevision | quote }}
       ref: values
@@ -36,6 +37,7 @@ spec:
       valuesObject:
         repoURL: {{ .repoURL | quote }}
         targetRevision: {{ .targetRevision | quote }}
+        domain: {{ $.Values.domain | quote }}
   {{- end }}
   destination:
     server: https://kubernetes.default.svc

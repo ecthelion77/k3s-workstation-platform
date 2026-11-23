@@ -22,6 +22,8 @@ DEFAULT_REVISION = "main"
 LOADBALANCER_IP_KEY = "loadbalancer_ip"
 CONFIG_REPO_URL_KEY = "config_repo_url"
 CONFIG_REPO_REVISION_KEY = "config_repo_revision"
+DOMAIN_KEY = "domain"
+DEFAULT_DOMAIN = "workstation.internal"
 GRAFANA_ADMIN_USER = "admin"
 
 
@@ -190,6 +192,16 @@ def ensure_config_repo(url: str | None, revision: str | None = None) -> None:
     command.run(["git", "-C", str(CONFIG_DIR), "checkout", "-f", "-B", branch, f"origin/{branch}"])
 
 
+def domain(config: dict | None = None) -> str:
+    """Return the platform DNS domain (``domain`` in the consumer config), default ``workstation.internal``."""
+    if config is None:
+        try:
+            config = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
+        except OSError:
+            config = {}
+    return str(config.get(DOMAIN_KEY) or DEFAULT_DOMAIN).strip().strip(".")
+
+
 def config_repo_revision(config: dict) -> str:
     """Return the config repository revision (branch), defaulting to ``DEFAULT_REVISION``."""
     return str(config.get(CONFIG_REPO_REVISION_KEY) or DEFAULT_REVISION)
@@ -225,6 +237,7 @@ def render_root_app_values(config: dict) -> Path:
         },
         "configRepoURL": config_repo_url(config) or "",
         "configRepoRevision": config_repo_revision(config),
+        "domain": domain(config),
     }
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = CONFIG_DIR / "root-app-values.yaml"

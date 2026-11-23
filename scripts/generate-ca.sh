@@ -8,7 +8,8 @@ set -euo pipefail
 
 ca_dir="${CA_DIR:-$HOME/.k3s-workstation-platform/ca}"
 ca_name="${CA_NAME:-Workstation Root CA}"
-ca_dns="${CA_DNS:-step-ca.step-ca.svc.cluster.local,ca.workstation.internal,127.0.0.1,localhost}"
+ca_domain="${CA_DOMAIN:-workstation.internal}"
+ca_dns="${CA_DNS:-step-ca.step-ca.svc.cluster.local,ca.${ca_domain},127.0.0.1,localhost}"
 ca_address="${CA_ADDRESS:-:9000}"
 
 command -v step >/dev/null 2>&1 || { echo "error: 'step' is required (run the bootstrap first)" >&2; exit 1; }

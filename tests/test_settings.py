@@ -160,3 +160,16 @@ def test_ensure_loadbalancer_ip_non_interactive_requires_value(monkeypatch, tmp_
 
     with pytest.raises(ValueError):
         settings.ensure_loadbalancer_ip(tmp_path, interactive=False)
+
+
+def test_domain_defaults_to_workstation_internal(monkeypatch, tmp_path):
+    _redirect_config(monkeypatch, tmp_path)
+    assert settings.domain() == "workstation.internal"
+
+
+def test_domain_is_read_from_the_config_and_reaches_the_root_app(monkeypatch, tmp_path):
+    _redirect_config(monkeypatch, tmp_path)
+    config = {"domain": "home.internal."}
+    assert settings.domain(config) == "home.internal"
+    values = yaml.safe_load(settings.render_root_app_values(config).read_text(encoding="utf-8"))
+    assert values["domain"] == "home.internal"

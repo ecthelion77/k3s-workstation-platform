@@ -33,10 +33,9 @@ _METALLB_POOL_NAME = "workstation-pool"
 _METALLB_L2_NAME = "workstation-l2"
 _TRAEFIK_NAMESPACE = "traefik"
 
-# Host-side split DNS for the *.workstation.internal zone (the WSL mirror of the Windows
+# Host-side split DNS for the *.<domain> zone (the WSL mirror of the Windows
 # Acrylic + NRPT setup). A local dnsmasq answers the wildcard zone; systemd-resolved routes
 # only that zone to it and keeps forwarding everything else to the host upstream.
-_WORKSTATION_DOMAIN = "workstation.internal"
 _HOST_DNS_PORT = 5353
 _HOST_DNS_SERVICE = "workstation-internal-dns"
 _HOST_DNS_CONF = Path("/etc/dnsmasq.d/workstation-internal.conf")
@@ -53,7 +52,7 @@ _GRAFANA_ADMIN_SECRET = "grafana-admin"
 # server on change; only adding or removing the k3s drop-in needs a restart.
 _K3S_SSO_DROPIN = Path("/etc/rancher/k3s/config.yaml.d/50-workstation-sso.yaml")
 _K3S_AUTHN_CONFIG = Path("/etc/rancher/k3s/authentication-config.yaml")
-_SSO_ISSUER = "https://sso.workstation.internal/realms/workstation"
+_SSO_REALM_PATH = "/realms/workstation"
 # Clients whose ID tokens the API accepts: Headlamp and kubectl (kubelogin).
 _SSO_API_AUDIENCES = ("headlamp", "kubernetes")
 # Matches the cluster-admin binding of the keycloak chart (`oidc:workstation-admins`).
@@ -172,7 +171,7 @@ def _ensure_local_ca(context: Context) -> Path:
     if not script.exists():
         raise PhaseError(f"CA generator not found: {script}")
     console.step("Generating the workstation CA")
-    command.run(["bash", str(script)])
+    command.run(["bash", str(script)], env={**os.environ, "CA_DOMAIN": settings.domain()})
     if not (ca / "root_ca.crt").exists():
         raise PhaseError(f"CA generation produced no material in {ca}")
     return ca
@@ -220,7 +219,7 @@ def _trust_ca_on_host(ca: Path) -> None:
     """Install the workstation root CA into the host trust store.
 
     Lets host clients (curl, VS Code extensions, the local coding agent) reach
-    ``*.workstation.internal`` over HTTPS without passing the CA explicitly. Idempotent: only reruns
+    ``*.<domain>`` over HTTPS without passing the CA explicitly. Idempotent: only reruns
     update-ca-certificates when the installed copy is missing or stale.
     """
     source = ca / "root_ca.crt"
@@ -246,7 +245,7 @@ def _ensure_node_ca_env() -> None:
     """Point Node processes at the workstation root CA via a profile.d drop-in.
 
     Node ignores the system trust store, so tools running under it (the VS Code extension host and
-    the local coding agent) fail TLS to ``*.workstation.internal`` unless NODE_EXTRA_CA_CERTS names
+    the local coding agent) fail TLS to ``*.<domain>`` unless NODE_EXTRA_CA_CERTS names
     the CA. Every login shell then exports it, including the editor server it launches. Idempotent;
     a running editor server must be restarted to pick up the new environment.
     """
@@ -346,7 +345,7 @@ def _phase_argocd(context: Context) -> None:
         brick="argocd",
         namespace="argocd",
         release="argocd",
-        set_values=["ingressRoute.enabled=false"],
+        set_values=["ingressRoute.enabled=false", f"ingressRoute.host=argocd.{settings.domain()}"],
     )
 
 
@@ -442,7 +441,7 @@ def _sudo_write(path: Path, content: str) -> None:
 def _host_upstream_dns() -> list[str]:
     """Return the host upstream nameservers from resolv.conf, excluding loopback.
 
-    dnsmasq forwards everything outside the workstation.internal zone to these, so general DNS keeps
+    dnsmasq forwards everything outside the platform domain zone to these, so general DNS keeps
     working. Loopback servers are dropped so we never forward back into our own resolver.
     """
     servers: list[str] = []
@@ -459,7 +458,7 @@ def _host_upstream_dns() -> list[str]:
 
 def _host_dns_conf(ip: str, upstreams: list[str]) -> str:
     lines = [
-        f"# Wildcard responder for *.{_WORKSTATION_DOMAIN} plus a plain forwarder.",
+        f"# Wildcard responder for *.{settings.domain()} plus a plain forwarder.",
         "# systemd-resolved sends every query here (see the resolved drop-in); this answers the",
         "# zone locally and forwards the rest to the host upstream, so general DNS keeps working",
         "# and nothing here depends on the cluster. Managed by k3s-workstation-bootstrap.",
@@ -467,7 +466,7 @@ def _host_dns_conf(ip: str, upstreams: list[str]) -> str:
         "listen-address=127.0.0.1",
         "bind-interfaces",
         "no-hosts",
-        f"address=/{_WORKSTATION_DOMAIN}/{ip}",
+        f"address=/{settings.domain()}/{ip}",
     ]
     if upstreams:
         lines.append("no-resolv")
@@ -478,7 +477,7 @@ def _host_dns_conf(ip: str, upstreams: list[str]) -> str:
 def _host_dns_unit() -> str:
     return (
         "[Unit]\n"
-        f"Description=Wildcard DNS for *.{_WORKSTATION_DOMAIN} (workstation platform)\n"
+        f"Description=Wildcard DNS for *.{settings.domain()} (workstation platform)\n"
         "After=network.target\n"
         "\n"
         "[Service]\n"
@@ -492,7 +491,7 @@ def _host_dns_unit() -> str:
 
 def _resolved_dropin() -> str:
     return (
-        "# Route all DNS through the local dnsmasq forwarder: it answers the workstation.internal\n"
+        "# Route all DNS through the local dnsmasq forwarder: it answers the platform domain\n"
         "# zone and forwards everything else upstream. Managed by k3s-workstation-bootstrap.\n"
         "[Resolve]\n"
         f"DNS=127.0.0.1:{_HOST_DNS_PORT}\n"
@@ -523,14 +522,14 @@ def _ensure_nss_resolve() -> None:
 
 
 def _apply_host_dns(ip: str, *, dry_run: bool) -> None:
-    """Make the host resolve *.workstation.internal to the Traefik LoadBalancer IP.
+    """Make the host resolve *.<domain> to the Traefik LoadBalancer IP.
 
     Installs a local dnsmasq that answers the wildcard zone, runs it under a dedicated systemd
     unit on 127.0.0.1:5353, and scopes systemd-resolved to forward only that zone to it. Idempotent
     and reversible; safe to re-run on IP changes.
     """
     if dry_run:
-        console.sub(f"[dry-run] would resolve *.{_WORKSTATION_DOMAIN} to {ip} via local dnsmasq")
+        console.sub(f"[dry-run] would resolve *.{settings.domain()} to {ip} via local dnsmasq")
         return
     if shutil.which("dnsmasq") is None:
         console.sub("installing dnsmasq and libnss-resolve")
@@ -546,11 +545,11 @@ def _apply_host_dns(ip: str, *, dry_run: bool) -> None:
     _ensure_nss_resolve()
     _sudo_write(_RESOLVED_DROPIN, _resolved_dropin())
     command.run(_sudo(["systemctl", "restart", "systemd-resolved"]), check=False)
-    console.ok(f"Host resolves *.{_WORKSTATION_DOMAIN} to {ip}")
+    console.ok(f"Host resolves *.{settings.domain()} to {ip}")
 
 
 def _phase_host_dns(context: Context) -> None:
-    """Resolve *.workstation.internal from the host (WSL) via a local wildcard DNS."""
+    """Resolve *.<domain> from the host (WSL) via a local wildcard DNS."""
     ip = settings.ensure_loadbalancer_ip(context.root, override=context.loadbalancer_ip)
     _apply_host_dns(ip, dry_run=context.dry_run)
 
@@ -778,6 +777,10 @@ def _phase_extra_root_apps(context: Context) -> None:
         )
 
 
+def _sso_issuer() -> str:
+    return f"https://sso.{settings.domain()}{_SSO_REALM_PATH}"
+
+
 def _authentication_config(ca_pem: str) -> str:
     """Structured authentication config: the API server accepts the realm's ID tokens."""
     return yaml.safe_dump(
@@ -787,7 +790,7 @@ def _authentication_config(ca_pem: str) -> str:
             "jwt": [
                 {
                     "issuer": {
-                        "url": _SSO_ISSUER,
+                        "url": _sso_issuer(),
                         "audiences": list(_SSO_API_AUDIENCES),
                         "audienceMatchPolicy": "MatchAny",
                         "certificateAuthority": ca_pem,
@@ -843,7 +846,7 @@ def _phase_api_oidc(context: Context) -> None:
         raise PhaseError(f"workstation root CA not found: {ca}")
     authn, dropin = _authentication_config(ca.read_text(encoding="ascii")), _sso_dropin()
     if context.dry_run:
-        console.sub(f"would configure the API server to trust {_SSO_ISSUER}")
+        console.sub(f"would configure the API server to trust {_sso_issuer()}")
         return
     if _read_text(_K3S_AUTHN_CONFIG) != authn:
         _sudo_write(_K3S_AUTHN_CONFIG, authn)
@@ -941,7 +944,7 @@ PHASE_PLAN: tuple[Phase, ...] = (
     ),
     Phase(
         "host-dns",
-        "Resolve *.workstation.internal from the host via a local wildcard DNS (dnsmasq)",
+        "Resolve *.<domain> from the host via a local wildcard DNS (dnsmasq)",
         _phase_host_dns,
     ),
     Phase(

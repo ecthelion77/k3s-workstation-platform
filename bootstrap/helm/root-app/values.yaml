@@ -11,3 +11,7 @@ rootApp:
 # `values/<name>.yaml`.
 configRepoURL: ""
 configRepoRevision: main
+
+# DNS domain of the platform: every app is exposed as <app>.<domain> (set by the bootstrap from the
+# consumer config `domain` key).
+domain: workstation.internal

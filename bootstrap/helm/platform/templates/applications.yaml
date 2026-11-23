@@ -5,6 +5,15 @@
 {{- range .Values.apps }}
 {{- if or (not .requires) (index $root.Values .requires).enabled }}
 {{- $sso := and .ssoValues $root.Values.sso.enabled }}
+{{- /* Hosts are chart defaults under workstation.internal; for another domain the app's
+       domainValues (and ssoDomainValues when sso is on) are injected with {domain} replaced. */}}
+{{- $dv := dict }}
+{{- if ne $root.Values.domain "workstation.internal" }}
+{{- $dv = deepCopy (.domainValues | default dict) }}
+{{- if $sso }}
+{{- $dv = mergeOverwrite $dv (deepCopy (.ssoDomainValues | default dict)) }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -34,6 +43,10 @@ spec:
           {{- end }}
           - $values/values/{{ .name }}.yaml
         ignoreMissingValueFiles: true
+        {{- if $dv }}
+        valuesObject:
+          {{- toYaml $dv | replace "{domain}" $root.Values.domain | nindent 10 }}
+        {{- end }}
     - repoURL: {{ $root.Values.configRepoURL | quote }}
       targetRevision: {{ $root.Values.configRepoRevision | quote }}
       ref: values
@@ -42,10 +55,16 @@ spec:
     repoURL: {{ $root.Values.repoURL | quote }}
     targetRevision: {{ $root.Values.targetRevision | quote }}
     path: {{ .path | quote }}
-    {{- if $sso }}
+    {{- if or $sso $dv }}
     helm:
+      {{- if $sso }}
       valueFiles:
         - {{ .ssoValues }}
+      {{- end }}
+      {{- if $dv }}
+      valuesObject:
+        {{- toYaml $dv | replace "{domain}" $root.Values.domain | nindent 8 }}
+      {{- end }}
     {{- end }}
   {{- end }}
   destination:
